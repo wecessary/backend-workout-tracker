@@ -1,6 +1,5 @@
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
-from flask_marshmallow import Marshmallow
 from functools import wraps
 import firebase_admin
 from firebase_admin import credentials, auth
@@ -17,7 +16,6 @@ app = Flask(__name__)
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///database.db"
 # initialize the app with the extension
 db.init_app(app)
-ma = Marshmallow(app)
 
 cred = credentials.Certificate("fb_admin_config.json")
 firebase_admin.initialize_app(cred)
