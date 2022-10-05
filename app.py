@@ -4,6 +4,10 @@ from flask_marshmallow import Marshmallow
 from functools import wraps
 import firebase_admin
 from firebase_admin import credentials, auth
+import datetime
+
+now = datetime.datetime.now()
+now_as_string = now.strftime("%Y-%m-%d")
 
 # create the extension
 db = SQLAlchemy()
@@ -64,21 +68,37 @@ def token_required(f):
         try:
             decoded_token = auth.verify_id_token(token)
             uid = decoded_token['uid']
-            user = User.query.filter_by(firebase_uid=uid).first()
         except Exception as e:
             return {
                        "message": "Something went wrong",
                        "data": None,
                        "error": str(e)
                    }, 500
-        return f(user, *args, **kwargs)
+        return f(uid, *args, **kwargs)
 
     return decorated
 
 
+def add_new_user(uids):
+    for count, uid in enumerate(uids):
+        user = User(firebase_uid=uid, name=f"user{count + 1}")
+        workout1 = Workout(workout_date=now_as_string, user=user)
+        exercise1 = Exercise(exercise_name="",
+                             workout=workout1, index=0, comment=f"",
+                             )
+        set1 = Sets(index=0, reps=10, weight=15, easy=True, done=False,
+                    exercise=exercise1)
+
+        db.session.add(user)
+        db.session.add(workout1)
+        db.session.add(exercise1)
+        db.session.add(set1)
+        db.session.commit()
+
+
 @app.route("/", methods=["GET", "PUT"])
 @token_required
-def api_user(user):
+def api_user(uid):
     def get_sets(exercise):
         sets = []
         for set in exercise.sets:
@@ -109,7 +129,9 @@ def api_user(user):
             user_data.append(workout_object)
         return user_data
 
-    def update_user(user):
+    def update_user(uid):
+        user = User.query.filter_by(firebase_uid=uid).first()
+
         def update_sets(i_exercise, exercise):
             for i_set, set in enumerate(exercise.sets):
                 sets_from_response = request.json["workoutData"][i_exercise]["sets"]
@@ -120,7 +142,6 @@ def api_user(user):
 
         def update_exercises(workout):
             for i_exercise, exercise in enumerate(workout.exercises):
-                print("printed!:", request.json["workoutData"][i_exercise])
                 workout.exercises[i_exercise].exercise_name = request.json["workoutData"][i_exercise]["name"]
                 workout.exercises[i_exercise].comment = request.json["workoutData"][i_exercise]["comment"]
                 update_sets(i_exercise, exercise)
@@ -133,54 +154,16 @@ def api_user(user):
         return get_user_data(user)
 
     if request.method == "GET":
-        return get_user_data(user), 200
+        user = User.query.filter_by(firebase_uid=uid).first()
+        if user:
+            return get_user_data(user), 200
+        else:
+            add_new_user([uid])
+            new_user = User.query.filter_by(firebase_uid=uid).first()
+            return get_user_data(new_user), 200
+
     if request.method == "PUT":
-        return update_user(user), 400
-
-
-# @app.route("/update-user-data")
-# @token_required
-# def update_user(user):
-#     def update_sets(i_exercise, exercise):
-#         for i_set, set in enumerate(exercise.sets):
-#             sets_from_response = request.json["workoutData"][i_exercise]["sets"]
-#             exercise.sets[i_set].reps = sets_from_response[i_set]["reps"]
-#             exercise.sets[i_set].weight = sets_from_response[i_set]["weight"]
-#             exercise.sets[i_set].easy = sets_from_response[i_set]["easy"]
-#             exercise.sets[i_set].true = sets_from_response[i_set]["done"]
-#
-#     def update_exercises(workout):
-#         for i_exercise, exercise in enumerate(workout.exercises):
-#             print("printed!:", request.json["workoutData"][i_exercise])
-#             workout.exercises[i_exercise].exercise_name = request.json["workoutData"][i_exercise]["name"]
-#             workout.exercises[i_exercise].comment = request.json["workoutData"][i_exercise]["comment"]
-#             update_sets(i_exercise, exercise)
-#
-#     for workout in user.workouts:
-#         if workout.workout_date == request.json["date"]:
-#             update_exercises(workout)
-#             db.session.commit()
-#
-#     return get_user_data(user)
-
-# sets = [
-#     {"index": user.workouts[0].exercises[0].sets[0].index,
-#      "reps": user.workouts[0].exercises[0].sets[0].reps,
-#      "weight": user.workouts[0].exercises[0].sets[0].weight,
-#      "easy": user.workouts[0].exercises[0].sets[0].easy,
-#      "done": user.workouts[0].exercises[0].sets[0].done
-#      }]
-#
-# workoutData = [{
-#     "index": user.workouts[0].exercises[0].index,
-#     "name": user.workouts[0].exercises[0].exercise_name,
-#     "comment": user.workouts[0].exercises[0].comment,
-#     "sets": sets}]
-#
-# user_data = [
-#     {"date": user.workouts[0].workout_date, "workoutData": workoutData}
-# ]
-# return user_data, 200
+        return update_user(uid), 400
 
 
 if __name__ == "__main__":
